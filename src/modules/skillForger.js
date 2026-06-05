@@ -28,14 +28,21 @@ SKILL ASSEGNATA: ${assignedSkill}
 
 SKILL DISPONIBILI: stratega, architetto, orchestratore, creatore, analista, ottimizzatore, guardiano, contabile, ricercatore, diagnostica, memoria, interfaccia.
 
-Rispondi SOLO con JSON valido, niente altro:
+Rispondi SOLO con JSON valido, niente altro.
+
+REGOLE PER nome_nuova_skill:
+- Formato OBBLIGATORIO: "skill-" seguito da 1-2 parole chiave del dominio
+- Esempi corretti: "skill-psicologia-clinica", "skill-nutrizione", "skill-legale", "skill-marketing-estetico"
+- MAI usare parole generiche come "specializzata", "basata", "nuova"
+- Il nome deve descrivere il DOMINIO specifico della skill
+
 {
   "skill_adeguata": true/false,
-  "motivo": "spiegazione breve",
+  "motivo": "spiegazione breve in max 20 parole",
   "skill_suggerita": "nome-skill-esistente o null",
   "nuova_skill_necessaria": true/false,
-  "nome_nuova_skill": "skill-nome" o null,
-  "dominio_nuova_skill": "descrizione del dominio specializzato"
+  "nome_nuova_skill": "skill-dominio-specifico" oppure null,
+  "dominio_nuova_skill": "descrizione concisa del dominio in max 15 parole"
 }`;
 
   const response = await client.chat.completions.create({
@@ -173,13 +180,27 @@ async function forgeAndRun(task, assignedSkill) {
     const dominio = analysis.skill_suggerita
       ? 'Skill specializzata basata su ' + analysis.skill_suggerita + ' con dominio: ' + (analysis.motivo||'contesto specifico')
       : analysis.motivo || 'Skill specializzata per task complessi';
-    const slug = dominio.toLowerCase().replace(/[^a-z ]/g,'').split(' ').filter(Boolean).slice(0,3).join('-');
+    // Extract meaningful keywords — skip generic words
+    const stopWords = new Set(['skill','specializzata','basata','nuova','su','di','del','della','con','per','che','la','il','lo','un','una','le','i','gli','e','non','è']);
+    const keywords = dominio.toLowerCase()
+      .replace(/[^a-zàèìòù ]/g,'')
+      .split(' ')
+      .filter(w => w.length > 3 && !stopWords.has(w))
+      .slice(0, 2);
+    const slug = keywords.length > 0 ? keywords.join('-') : 'specializzata';
     analysis.nome_nuova_skill = 'skill-' + slug;
     analysis.dominio_nuova_skill = dominio;
   }
 
   // Step 3: Skill già forgiata in precedenza?
-  const nomeNuova = analysis.nome_nuova_skill;
+  // Clean up bad names from Groq
+  let nomeNuova = analysis.nome_nuova_skill;
+  if (nomeNuova) {
+    const stopWords = new Set(['skill','specializzata','basata','nuova','su','di','del','della','con','per']);
+    const parts = nomeNuova.replace('skill-','').split('-').filter(w => w.length > 2 && !stopWords.has(w)).slice(0,2);
+    nomeNuova = parts.length > 0 ? 'skill-' + parts.join('-') : null;
+    analysis.nome_nuova_skill = nomeNuova;
+  }
   if (nomeNuova && FORGED_SKILLS[nomeNuova]) {
     log.steps.push({ step: 3, action: 'USE_CACHED', skill: nomeNuova });
     const result = await runForgedSkill(nomeNuova, task);
