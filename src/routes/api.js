@@ -214,3 +214,32 @@ router.post('/system/mode', (req, res) => {
 });
 
 module.exports = router;
+
+// ── SKILL FORGER ──────────────────────────────────────────────
+const forger = require('../modules/skillForger');
+
+router.get('/forger/skills', (req, res) => {
+  res.json({ skills: forger.getForgedSkills(), total: forger.getForgedSkills().length });
+});
+
+router.post('/forger/analyze', async (req, res) => {
+  const { task_title, assigned_skill } = req.body;
+  if (!task_title) return res.status(400).json({ error: 'task_title required' });
+  const analysis = await forger.shouldForge(task_title, assigned_skill || 'skill-creatore');
+  res.json({ analysis });
+});
+
+router.post('/forger/forge', async (req, res) => {
+  const { nome, dominio, task_esempio } = req.body;
+  if (!nome || !dominio) return res.status(400).json({ error: 'nome e dominio richiesti' });
+  const skill = await forger.forgeSkill(nome, dominio, task_esempio || 'task generico');
+  res.json({ skill });
+});
+
+router.post('/forger/run', async (req, res) => {
+  const { task_title, assigned_skill } = req.body;
+  if (!task_title) return res.status(400).json({ error: 'task_title required' });
+  const task = { task_id: require('../modules/state').uuid(), title: task_title };
+  const result = await forger.forgeAndRun(task, assigned_skill || 'skill-creatore');
+  res.json(result);
+});
