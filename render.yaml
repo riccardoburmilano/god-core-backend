@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: god-core-backend
+    env: node
+    buildCommand: npm install
+    startCommand: node src/index.js
+    healthCheckPath: /api/v2/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GOD_VERSION
+        value: "2.0.0"
+      - key: GOD_MODEL
+        value: claude-sonnet-4-20250514
+      - key: GOD_MAX_TOKENS
+        value: "2000"
+      - key: GOD_BUDGET_INITIAL
+        value: "10000"
+      - key: GOD_DAEMON_INTERVAL_MS
+        value: "15000"
