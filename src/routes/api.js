@@ -274,3 +274,14 @@ router.post('/diagnostica/reject/:id', (req, res) => {
 router.get('/diagnostica/history', (req, res) => {
   res.json({ applied: diag.getAppliedFixes(), log: diag.getDiagnosticLog() });
 });
+
+// ── INSIGHT CLINICO ───────────────────────────────────────────
+const { getInsightPaziente } = require('../modules/insightClinical');
+
+router.post('/insight/paziente', async (req, res) => {
+  const { paziente } = req.body;
+  if (!paziente) return res.status(400).json({ error: 'paziente required' });
+  if (!process.env.GROQ_API_KEY) return res.status(503).json({ error: 'GROQ_API_KEY not configured' });
+  const result = await getInsightPaziente(paziente);
+  res.json(result);
+});
