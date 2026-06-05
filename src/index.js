@@ -96,7 +96,7 @@ app.listen(PORT, () => {
 ║  Port:    ${PORT}                                  ║
 ║  Model:   ${(process.env.GOD_MODEL || 'claude-sonnet-4-20250514').slice(0,30)}  ║
 ║  Daemon:  AUTO-START                             ║
-║  API Key: ${process.env.ANTHROPIC_API_KEY ? '✓ CONFIGURED' : '✗ MISSING — set ANTHROPIC_API_KEY'}  ║
+║ ║  API Key: ${process.env.GROQ_API_KEY ? '✓ CONFIGURED' : '✗ MISSING — set GROQ_API_KEY'}  ║
 ╚══════════════════════════════════════════════════╝
   `);
 
