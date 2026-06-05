@@ -243,3 +243,34 @@ router.post('/forger/run', async (req, res) => {
   const result = await forger.forgeAndRun(task, assigned_skill || 'skill-creatore');
   res.json(result);
 });
+
+// ── CORE DIAGNOSTICA ──────────────────────────────────────────
+const diag = require('../modules/coreDiagnostica');
+
+router.get('/diagnostica/scan', async (req, res) => {
+  const result = await diag.scanSystem();
+  res.json(result);
+});
+
+router.post('/diagnostica/full', async (req, res) => {
+  const result = await diag.fullDiagnostic();
+  res.json(result);
+});
+
+router.get('/diagnostica/pending', (req, res) => {
+  res.json({ fixes: diag.getPendingFixes(), total: diag.getPendingFixes().length });
+});
+
+router.post('/diagnostica/approve/:id', async (req, res) => {
+  const result = await diag.approveFix(req.params.id);
+  res.json(result);
+});
+
+router.post('/diagnostica/reject/:id', (req, res) => {
+  const result = diag.rejectFix(req.params.id);
+  res.json(result);
+});
+
+router.get('/diagnostica/history', (req, res) => {
+  res.json({ applied: diag.getAppliedFixes(), log: diag.getDiagnosticLog() });
+});
