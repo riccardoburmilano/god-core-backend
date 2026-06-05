@@ -157,14 +157,25 @@ async function forgeAndRun(task, assignedSkill) {
   const analysis = await shouldForge(task.title, assignedSkill);
   log.steps.push({ step: 1, result: analysis });
 
-  // Step 2: Skill esistente ma migliore?
-  if (analysis.skill_adeguata && !analysis.nuova_skill_necessaria) {
+  // Step 2: Skill esistente e adeguata → non serve niente
+  const needsForge = !analysis.skill_adeguata || analysis.nuova_skill_necessaria;
+  if (!needsForge) {
     return {
       forged: false,
       analysis,
       message: 'Skill esistente adeguata — nessuna nuova skill necessaria',
       log
     };
+  }
+  // Se skill non adeguata ma nessun nome suggerito → genera nome automatico
+  if (!analysis.nome_nuova_skill && !analysis.skill_adeguata) {
+    analysis.nuova_skill_necessaria = true;
+    const dominio = analysis.skill_suggerita
+      ? 'Skill specializzata basata su ' + analysis.skill_suggerita + ' con dominio: ' + (analysis.motivo||'contesto specifico')
+      : analysis.motivo || 'Skill specializzata per task complessi';
+    const slug = dominio.toLowerCase().replace(/[^a-z ]/g,'').split(' ').filter(Boolean).slice(0,3).join('-');
+    analysis.nome_nuova_skill = 'skill-' + slug;
+    analysis.dominio_nuova_skill = dominio;
   }
 
   // Step 3: Skill già forgiata in precedenza?
