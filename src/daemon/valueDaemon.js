@@ -5,7 +5,7 @@
 
 const cron = require('node-cron');
 const { stateRead, stateWrite, creditsRead, creditTopUp, tasksRead, memoryRead,
-        logWrite, daemonLogWrite, uuid, now } = require('./state');
+        logWrite, daemonLogWrite, uuid, now } = require('../modules/state');
 
 const DAEMON_INTERVAL_MS   = parseInt(process.env.GOD_DAEMON_INTERVAL_MS)   || 15000;
 const REPAIR_THRESHOLD     = parseFloat(process.env.GOD_REPAIR_THRESHOLD)   || 35;
