@@ -285,3 +285,15 @@ router.post('/insight/paziente', async (req, res) => {
   const result = await getInsightPaziente(paziente);
   res.json(result);
 });
+
+// ── LAZARUS-9 STATUS ──────────────────────────────────────────
+const lazarus = require('../modules/lazarus');
+
+router.get('/lazarus/status', (req, res) => {
+  res.json(lazarus.getStatus());
+});
+
+router.post('/lazarus/cache/clear', (req, res) => {
+  lazarus.clearCache();
+  res.json({ cleared: true, timestamp: new Date().toISOString() });
+});
