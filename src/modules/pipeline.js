@@ -9,8 +9,7 @@ const { stateRead, stateWrite, modPing, logWrite, taskUpdate, creditSpend,
 const { classifyIntent, autoPipelineFromText } = require('./router');
 const { computeScoreFromOutput, guardianVerdict } = require('./scoring');
 
-const client = new Groq({ apiKey: process.env.GROQ_API_KEY });
-const MODEL = process.env.GOD_MODEL || 'llama-3.3-70b-versatile';
+const { lazarusCall } = require('./lazarus');
 const MAX_TOKENS = parseInt(process.env.GOD_MAX_TOKENS) || 2000;
 
 // ── Skill system prompts ──────────────────────────────────────
@@ -75,17 +74,9 @@ async function runSkill(task, skillName, context = '') {
 
   modPing(skillName.replace('skill-', '').toUpperCase(), 0);
 
-  const response = await client.chat.completions.create({
-    model: MODEL,
-    max_tokens: MAX_TOKENS,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userMsg }
-    ]
-  });
-
-  const outputText = response.choices[0]?.message?.content || '';
-  const tokens = (response.usage?.prompt_tokens || 0) + (response.usage?.completion_tokens || 0);
+  const lazResult = await lazarusCall(systemPrompt, userMsg, { maxTokens: MAX_TOKENS });
+  const outputText = lazResult.text || '';
+  const tokens = lazResult.tokens || 0;
 
   modPing(skillName.replace('skill-', '').toUpperCase(), 5);
   logWrite(skillName.toUpperCase().replace('SKILL-',''), 'execute', { task_id: task.task_id }, { tokens, length: outputText.length }, 'SUCCESS');

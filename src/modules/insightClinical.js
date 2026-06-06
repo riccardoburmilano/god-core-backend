@@ -3,11 +3,8 @@
 // Endpoint dedicato per insight paziente — output compatto
 // ============================================================
 
-const Groq = require('groq-sdk');
+const { lazarusCall } = require('./lazarus');
 const { logWrite, uuid, now } = require('./state');
-
-const client = new Groq({ apiKey: process.env.GROQ_API_KEY });
-const MODEL = process.env.GOD_MODEL || 'llama-3.3-70b-versatile';
 
 const SYSTEM_PROMPT = `Sei un consulente clinico AI per centri estetici e cliniche.
 Ricevi il profilo di un paziente e devi rispondere SOLO con JSON valido, niente altro.
