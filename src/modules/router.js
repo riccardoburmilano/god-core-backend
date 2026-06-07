@@ -1,9 +1,13 @@
 // ============================================================
-// GOD ROUTER v1.7 + AUTO-PIPELINE v2.0
-// Intent classification + pipeline generation from natural language
+// GOD ROUTER v1.8 + AUTO-PIPELINE v2.5
+// Intent classification + semantic HF analysis + pipeline generation
 // ============================================================
+
 import { hf } from "../../god/hf.js";
 
+// ─────────────────────────────────────────────────────────────
+// 1) INTENT MAP
+// ─────────────────────────────────────────────────────────────
 const INTENT_MAP = [
   { type: 'PIANIFICAZIONE', skill: 'skill-stratega',      kw: ['piano','strategia','obiettivo','organizza','scope','roadmap','pianifica'] },
   { type: 'ARCHITETTURA',   skill: 'skill-architetto',    kw: ['architettura','blueprint','pipeline','dipendenz','modulo','struttura','flusso','schema'] },
@@ -17,6 +21,9 @@ const INTENT_MAP = [
   { type: 'MEMORIA',        skill: 'skill-memoria',       kw: ['storico','ricorda','archivia','pattern','precedente','recupera'] },
 ];
 
+// ─────────────────────────────────────────────────────────────
+// 2) PIPELINE TEMPLATES
+// ─────────────────────────────────────────────────────────────
 const PIPELINE_TEMPLATES = {
   contenuto:   ['skill-ricercatore','skill-creatore','skill-analista','skill-ottimizzatore','skill-guardiano'],
   analisi:     ['skill-ricercatore','skill-analista','skill-diagnostica','skill-ottimizzatore'],
@@ -26,22 +33,21 @@ const PIPELINE_TEMPLATES = {
   default:     ['skill-stratega','skill-creatore','skill-analista','skill-guardiano'],
 };
 
-function classifyIntent(title) {
-  const t = title.toLowerCase();
-  for (const intent of INTENT_MAP) {
-    if (intent.kw.some(k => t.includes(k))) return intent;
+// ─────────────────────────────────────────────────────────────
+// 3) HF-POWERED INTENT BOOSTER
+// ─────────────────────────────────────────────────────────────
+async function hfIntentBoost(text) {
+  try {
+    const entities = await hf("dslim/bert-base-NER", text);
+    const emb = await hf("sentence-transformers/all-MiniLM-L6-v2", text);
+
+    return { entities, emb };
+  } catch (e) {
+    return { entities: null, emb: null };
   }
-  return { type: 'ESECUZIONE', skill: 'skill-orchestratore' };
 }
 
-function autoPipelineFromText(text) {
-  const t = text.toLowerCase();
-  if (t.includes('contenuto') || t.includes('articolo') || t.includes('post') || t.includes('scrivi')) return { type: 'contenuto', skills: PIPELINE_TEMPLATES.contenuto };
-  if (t.includes('analisi') || t.includes('report') || t.includes('valuta') || t.includes('misura'))    return { type: 'analisi',   skills: PIPELINE_TEMPLATES.analisi };
-  if (t.includes('strateg') || t.includes('piano') || t.includes('architettura'))                        return { type: 'strategia', skills: PIPELINE_TEMPLATES.strategia };
-  if (t.includes('errore') || t.includes('problema') || t.includes('debug'))                             return { type: 'diagnostica', skills: PIPELINE_TEMPLATES.diagnostica };
-  if (t.includes('crea') || t.includes('genera') || t.includes('produci'))                               return { type: 'produzione', skills: PIPELINE_TEMPLATES.produzione };
-  return { type: 'default', skills: PIPELINE_TEMPLATES.default };
-}
-
-module.exports = { classifyIntent, autoPipelineFromText, INTENT_MAP, PIPELINE_TEMPLATES };
+// ─────────────────────────────────────────────────────────────
+// 4) CLASSIFY INTENT (HF + keyword)
+// ─────────────────────────────────────────────────────────────
+async function classifyIntent(text) {
