@@ -108,7 +108,7 @@ app.listen(PORT, () => {
     daemon.start();
     console.log('[GOD] VALUE_DAEMON avviato automaticamente');
   } else {
-    console.warn('[GOD] ⚠ ANTHROPIC_API_KEY mancante — VALUE_DAEMON non avviato');
+    console.warn('[GOD] ⚠ GROQ_API_KEY mancante — VALUE_DAEMON non avviato');
   }
 });
 
