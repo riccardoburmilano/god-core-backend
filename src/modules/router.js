@@ -2,7 +2,8 @@
 // GOD OS ROUTER — VERSIONE STABILE
 // ============================================================
 
-import { hf } from "../god/hf.js";
+import { hf } from "../../god/hf.js";
+
 
 // INTENT MAP
 const INTENT_MAP = [
