@@ -1,5 +1,5 @@
 // ============================================================
-// GOD API ROUTES v2.0
+// GOD API ROUTES v2.1
 // Tutti gli endpoint REST del sistema GOD
 // ============================================================
 
@@ -72,10 +72,9 @@ router.post('/tasks/:id/run', async (req, res) => {
   if (task.status === 'RUNNING') return res.status(409).json({ error: 'Task already running' });
 
   if (!process.env.GROQ_API_KEY) {
-    return res.status(503).json({ error: 'ANTHROPIC_API_KEY not configured' });
+    return res.status(503).json({ error: 'GROQ_API_KEY not configured' });
   }
 
-  // Run async, return immediately
   const result = await executeTask(task);
   const updatedTask = tasksRead().find(t => t.task_id === req.params.id);
   res.json({ task: updatedTask, result });
@@ -105,10 +104,6 @@ router.post('/credits/topup', (req, res) => {
 
 // ── LOGS ──────────────────────────────────────────────────────
 router.get('/logs', (req, res) => {
-  const { stateRead: sr } = require('../modules/state');
-  // Logs are in module — import directly
-  const { LOGS } = require('../modules/state'); // won't work — use alternative
-  // Access via state module export
   const allLogs = global.__GOD_LOGS || [];
   const limit = parseInt(req.query.limit) || 50;
   const module = req.query.module;
@@ -142,24 +137,48 @@ router.get('/routes', (req, res) => {
 });
 
 // ── PIPELINE AUTO ─────────────────────────────────────────────
+// FIX v2.1: accetta sia 'description' che 'task', esegue via LAZARUS-9
 router.post('/pipeline/auto', async (req, res) => {
-  const { description, app_id } = req.body;
-  if (!description) return res.status(400).json({ error: 'description is required' });
+  const { description, task, context, app_id, app } = req.body;
+  const input = description || task;
+  if (!input) return res.status(400).json({ error: 'description or task is required' });
 
-  const pipeline = autoPipelineFromText(description);
-  const task = taskCreate({
-    title: description,
-    skill: pipeline.skills[0],
-    priority: 'IMPORTANTE',
-    app_id: app_id || null,
-    pipeline: pipeline.skills,
-    pipeline_type: pipeline.type
-  });
+  if (!process.env.GROQ_API_KEY) {
+    return res.status(503).json({ error: 'GROQ_API_KEY not configured' });
+  }
 
-  const s = stateRead();
-  stateWrite('AUTO_PIPELINE', { metrics: { ...s.metrics, pipelines_generated: (s.metrics.pipelines_generated || 0) + 1 } });
+  try {
+    const { lazarusCall } = require('../modules/lazarus');
 
-  res.status(201).json({ task, pipeline, message: `Pipeline '${pipeline.type}' generata con ${pipeline.skills.length} skill` });
+    const systemPrompt = context ||
+      `Sei un assistente operativo AI per cliniche di medicina e chirurgia estetica premium.
+Rispondi in italiano, in modo conciso e professionale.
+Usa elenchi puntati quando utile.
+Dati clinica di riferimento: 12 pazienti oggi, fatturato settimanale €18.400 (+8%),
+47 appuntamenti settimanali, 8/10 staff attivi, 2 sale operatorie,
+specializzazioni: filler, botox, rinoplastica, chirurgia estetica, laser, peeling.`;
+
+    const result = await lazarusCall(systemPrompt, input, {
+      maxTokens: 600,
+      tier: 'POWER',
+      skipCache: false
+    });
+
+    logWrite('PIPELINE_AUTO', 'executed', { input: input.slice(0, 100) }, { provider: result.provider, tokens: result.tokens }, 'SUCCESS');
+
+    res.json({
+      output: result.text,
+      result: result.text,
+      provider: result.provider,
+      tokens: result.tokens,
+      model: result.model,
+      app_id: app || app_id || null
+    });
+
+  } catch (err) {
+    logWrite('PIPELINE_AUTO', 'error', { input: input.slice(0, 100) }, { error: err.message }, 'ERROR');
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── DAEMON ────────────────────────────────────────────────────
@@ -212,8 +231,6 @@ router.post('/system/mode', (req, res) => {
   stateWrite('OPERATOR', { system: { ...s.system, mode } });
   res.json({ mode, message: `Sistema impostato in modalità ${mode}` });
 });
-
-module.exports = router;
 
 // ── SKILL FORGER ──────────────────────────────────────────────
 const forger = require('../modules/skillForger');
@@ -297,3 +314,5 @@ router.post('/lazarus/cache/clear', (req, res) => {
   lazarus.clearCache();
   res.json({ cleared: true, timestamp: new Date().toISOString() });
 });
+
+module.exports = router;
