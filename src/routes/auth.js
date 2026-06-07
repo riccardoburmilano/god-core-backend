@@ -212,5 +212,93 @@ router.delete('/patients/:id', requireStaff, requireRole('CEO'), async (req, res
     res.status(500).json({ error: err.message });
   }
 });
+// ── MESSAGGI STAFF ────────────────────────────────────────────
+
+// Invia messaggio
+router.post('/messages', requireStaff, async (req, res) => {
+  try {
+    const { to_staff_id, message } = req.body;
+    if (!to_staff_id || !message?.trim()) {
+      return res.status(400).json({ error: 'to_staff_id e message obbligatori' });
+    }
+    const rows = await db.sql`
+      INSERT INTO staff_messages (clinic_id, from_staff, to_staff, message)
+      VALUES (${req.clinic_id}, ${req.staff_id}, ${to_staff_id}, ${message.trim()})
+      RETURNING id, from_staff, to_staff, message, read, created_at
+    `;
+    res.status(201).json({ success: true, message: rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Polling: messaggi non letti per lo staff loggato
+router.get('/messages/unread', requireStaff, async (req, res) => {
+  try {
+    const rows = await db.sql`
+      SELECT 
+        m.id, m.message, m.created_at, m.from_staff,
+        s.name as from_name, s.avatar_color, s.role as from_role
+      FROM staff_messages m
+      JOIN staff s ON s.id = m.from_staff
+      WHERE m.to_staff = ${req.staff_id}
+        AND m.clinic_id = ${req.clinic_id}
+        AND m.read = FALSE
+      ORDER BY m.created_at ASC
+    `;
+    res.json({ messages: rows, count: rows.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Segna come letti
+router.post('/messages/read', requireStaff, async (req, res) => {
+  try {
+    const { message_ids } = req.body;
+    if (!message_ids?.length) return res.json({ success: true });
+    await db.sql`
+      UPDATE staff_messages 
+      SET read = TRUE 
+      WHERE id = ANY(${message_ids}::uuid[])
+        AND to_staff = ${req.staff_id}
+    `;
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Cronologia chat tra due staff
+router.get('/messages/thread/:other_staff_id', requireStaff, async (req, res) => {
+  try {
+    const { other_staff_id } = req.params;
+    const limit = parseInt(req.query.limit) || 50;
+    const rows = await db.sql`
+      SELECT 
+        m.id, m.message, m.created_at, m.read,
+        m.from_staff, m.to_staff,
+        s.name as from_name, s.avatar_color, s.role as from_role
+      FROM staff_messages m
+      JOIN staff s ON s.id = m.from_staff
+      WHERE m.clinic_id = ${req.clinic_id}
+        AND (
+          (m.from_staff = ${req.staff_id} AND m.to_staff = ${other_staff_id})
+          OR
+          (m.from_staff = ${other_staff_id} AND m.to_staff = ${req.staff_id})
+        )
+      ORDER BY m.created_at DESC
+      LIMIT ${limit}
+    `;
+    // Segna come letti i messaggi ricevuti
+    const unread = rows.filter(r => r.to_staff === req.staff_id && !r.read).map(r => r.id);
+    if (unread.length) {
+      await db.sql`UPDATE staff_messages SET read = TRUE WHERE id = ANY(${unread}::uuid[])`;
+    }
+    res.json({ messages: rows.reverse() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 module.exports = router;
