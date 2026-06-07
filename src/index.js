@@ -39,6 +39,9 @@ app.use((req, res, next) => {
 // ── API Routes ────────────────────────────────────────────────
 app.use('/api/v2', apiRoutes);
 
+const authRoutes = require('./routes/auth');
+app.use('/api/v2/operantis', authRoutes);
+
 // ── Root ─────────────────────────────────────────────────────
 app.get('/', (req, res) => {
   const s = stateRead();
