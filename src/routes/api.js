@@ -1,6 +1,5 @@
 // ============================================================
-// GOD API ROUTES v2.1
-// Tutti gli endpoint REST del sistema GOD
+// GOD API ROUTES v2.1 — VERSIONE CORRETTA
 // ============================================================
 
 const express = require('express');
@@ -26,7 +25,13 @@ router.use((req, res, next) => {
 // ── HEALTH ────────────────────────────────────────────────────
 router.get('/health', (req, res) => {
   const s = stateRead();
-  res.json({ status: 'GOD ONLINE', version: s.god_version || '2.0.0', mode: s.system?.mode, uptime: s.metrics?.uptime_start, timestamp: now() });
+  res.json({
+    status: 'GOD ONLINE',
+    version: s.god_version || '2.0.0',
+    mode: s.system?.mode,
+    uptime: s.metrics?.uptime_start,
+    timestamp: now()
+  });
 });
 
 // ── STATE ─────────────────────────────────────────────────────
@@ -137,7 +142,6 @@ router.get('/routes', (req, res) => {
 });
 
 // ── PIPELINE AUTO ─────────────────────────────────────────────
-// FIX v2.1: accetta sia 'description' che 'task', esegue via LAZARUS-9
 router.post('/pipeline/auto', async (req, res) => {
   const { description, task, context, app_id, app } = req.body;
   const input = description || task;
@@ -152,11 +156,7 @@ router.post('/pipeline/auto', async (req, res) => {
 
     const systemPrompt = context ||
       `Sei un assistente operativo AI per cliniche di medicina e chirurgia estetica premium.
-Rispondi in italiano, in modo conciso e professionale.
-Usa elenchi puntati quando utile.
-Dati clinica di riferimento: 12 pazienti oggi, fatturato settimanale €18.400 (+8%),
-47 appuntamenti settimanali, 8/10 staff attivi, 2 sale operatorie,
-specializzazioni: filler, botox, rinoplastica, chirurgia estetica, laser, peeling.`;
+Rispondi in italiano, in modo conciso e professionale.`;
 
     const result = await lazarusCall(systemPrompt, input, {
       maxTokens: 600,
