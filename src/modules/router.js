@@ -2,6 +2,7 @@
 // GOD ROUTER v1.7 + AUTO-PIPELINE v2.0
 // Intent classification + pipeline generation from natural language
 // ============================================================
+import { hf } from "../../god/hf.js";
 
 const INTENT_MAP = [
   { type: 'PIANIFICAZIONE', skill: 'skill-stratega',      kw: ['piano','strategia','obiettivo','organizza','scope','roadmap','pianifica'] },
