@@ -86,7 +86,7 @@ router.post('/staff', requireAdmin, async (req, res) => {
     const { name, role, pin, avatar_color } = req.body;
     if (!name || !role || !pin) return res.status(400).json({ error: 'name, role e pin obbligatori' });
     if (!/^\d{4}$/.test(pin)) return res.status(400).json({ error: 'PIN deve essere di 4 cifre numeriche' });
-    const valid_roles = ['CEO', 'MEDICO', 'RECEPTIONIST', 'ASSISTENTE'];
+    const valid_roles = ['CEO', 'MEDICO', 'RECEPTIONIST', 'ASSISTENTE', 'INFERMIERE', 'LEGALE', 'MARKETING'];
     if (!valid_roles.includes(role)) return res.status(400).json({ error: `role deve essere uno tra: ${valid_roles.join(', ')}` });
 
     const member = await db.staffCreate({ clinic_id: req.clinic_id, name, role, pin, avatar_color });
