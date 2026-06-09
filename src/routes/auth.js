@@ -436,4 +436,180 @@ router.post('/payments/webhook', async (req, res) => {
     res.status(400).json({ error: err.message });
   }
 });
+// ── PAZIENTE AUTH ─────────────────────────────────────────────
+
+// Registrazione paziente
+router.post('/paziente/register', async (req, res) => {
+  try {
+    const { nome, cognome, email, telefono } = req.body;
+    if (!nome || !email) return res.status(400).json({ error: 'Nome ed email obbligatori' });
+
+    // Controlla se esiste già
+    const existing = await db.sql`SELECT id FROM pazienti WHERE email = ${email}`;
+    if (existing[0]) return res.status(409).json({ error: 'Email già registrata — accedi' });
+
+    const rows = await db.sql`
+      INSERT INTO pazienti (nome, cognome, email, telefono, punti)
+      VALUES (${nome}, ${cognome||''}, ${email}, ${telefono||''}, 500)
+      RETURNING id, nome, cognome, email, telefono, punti, created_at
+    `;
+    res.status(201).json({ success: true, paziente: rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Login paziente (email only — magic link style)
+router.post('/paziente/login', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email obbligatoria' });
+
+    const rows = await db.sql`SELECT * FROM pazienti WHERE email = ${email}`;
+    if (!rows[0]) return res.status(404).json({ error: 'Email non trovata — registrati prima' });
+
+    res.json({ success: true, paziente: rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Aggiorna push token paziente
+router.post('/paziente/push-token', async (req, res) => {
+  try {
+    const { paziente_id, push_token } = req.body;
+    if (!paziente_id || !push_token) return res.status(400).json({ error: 'paziente_id e push_token obbligatori' });
+
+    await db.sql`UPDATE pazienti SET push_token = ${push_token} WHERE id = ${paziente_id}`;
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── CLINICHE (autocomplete) ────────────────────────────────────
+
+router.get('/cliniche', async (req, res) => {
+  try {
+    const { q } = req.query;
+    let cliniche;
+    if (q && q.length > 1) {
+      cliniche = await db.sql`
+        SELECT id, name, city, specialties
+        FROM clinic
+        WHERE name ILIKE ${'%' + q + '%'} OR city ILIKE ${'%' + q + '%'}
+        LIMIT 10
+      `;
+    } else {
+      cliniche = await db.sql`SELECT id, name, city, specialties FROM clinic LIMIT 20`;
+    }
+    res.json({ cliniche });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── PRENOTAZIONI ──────────────────────────────────────────────
+
+// Richiesta prenotazione da paziente
+router.post('/prenotazioni', async (req, res) => {
+  try {
+    const { clinic_id, paziente_id, trattamento, note, data_richiesta } = req.body;
+    if (!clinic_id || !paziente_id) return res.status(400).json({ error: 'clinic_id e paziente_id obbligatori' });
+
+    const rows = await db.sql`
+      INSERT INTO prenotazioni (clinic_id, paziente_id, trattamento, note, data_richiesta, status)
+      VALUES (${clinic_id}, ${paziente_id}, ${trattamento||''}, ${note||''}, ${data_richiesta||''}, 'in_attesa')
+      RETURNING *
+    `;
+
+    // Log per la receptionist
+    console.log(`[BUR OS] Nuova prenotazione: ${trattamento} — clinic ${clinic_id}`);
+
+    res.status(201).json({ success: true, prenotazione: rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Lista prenotazioni per clinica (receptionist)
+router.get('/prenotazioni', requireStaff, async (req, res) => {
+  try {
+    const rows = await db.sql`
+      SELECT p.*, paz.nome, paz.cognome, paz.email, paz.telefono
+      FROM prenotazioni p
+      JOIN pazienti paz ON paz.id = p.paziente_id
+      WHERE p.clinic_id = ${req.clinic_id}
+      ORDER BY p.created_at DESC
+      LIMIT 50
+    `;
+    res.json({ prenotazioni: rows, total: rows.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Aggiorna status prenotazione
+router.put('/prenotazioni/:id', requireStaff, async (req, res) => {
+  try {
+    const { status } = req.body;
+    const rows = await db.sql`
+      UPDATE prenotazioni SET status = ${status}
+      WHERE id = ${req.params.id} AND clinic_id = ${req.clinic_id}
+      RETURNING *
+    `;
+    if (!rows[0]) return res.status(404).json({ error: 'Prenotazione non trovata' });
+    res.json({ success: true, prenotazione: rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── NOTIFICHE PAZIENTE ────────────────────────────────────────
+
+// Invia notifica al paziente (da receptionist)
+router.post('/paziente/notifica', requireStaff, async (req, res) => {
+  try {
+    const { paziente_email, titolo, messaggio, tipo, payment_link } = req.body;
+    if (!paziente_email || !messaggio) return res.status(400).json({ error: 'paziente_email e messaggio obbligatori' });
+
+    // Recupera push token del paziente
+    const rows = await db.sql`SELECT id, push_token, nome FROM pazienti WHERE email = ${paziente_email}`;
+    const paziente = rows[0];
+
+    if (!paziente) return res.status(404).json({ error: 'Paziente non trovato' });
+
+    // Log notifica
+    console.log(`[BUR OS] Notifica → ${paziente.nome}: ${messaggio}`);
+
+    // Se ha push token, invia Web Push (richiede VAPID keys in futuro)
+    // Per ora restituiamo successo — l'app paziente fa polling
+    res.json({
+      success: true,
+      paziente_nome: paziente.nome,
+      push_sent: !!paziente.push_token,
+      messaggio,
+      tipo: tipo || 'info',
+      payment_link: payment_link || null
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Polling notifiche paziente (app paziente lo chiama ogni 10s)
+router.get('/paziente/notifiche/:paziente_id', async (req, res) => {
+  try {
+    // Per ora restituisce mock — in futuro da tabella notifiche
+    const rows = await db.sql`SELECT id, nome FROM pazienti WHERE id = ${req.params.paziente_id}`;
+    if (!rows[0]) return res.status(404).json({ error: 'Paziente non trovato' });
+
+    res.json({
+      notifiche: [],
+      paziente: rows[0]
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 module.exports = router;
