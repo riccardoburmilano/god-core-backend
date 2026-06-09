@@ -300,5 +300,146 @@ router.get('/messages/thread/:other_staff_id', requireStaff, async (req, res) =>
     res.status(500).json({ error: err.message });
   }
 });
+// ── STRIPE PAYMENT ────────────────────────────────────────────
+// Aggiungi in fondo a src/routes/auth.js prima di module.exports
 
+const stripe = process.env.STRIPE_SECRET_KEY
+  ? require('stripe')(process.env.STRIPE_SECRET_KEY)
+  : null;
+
+// Crea payment intent per sessione
+router.post('/payments/create', requireStaff, async (req, res) => {
+  try {
+    if (!stripe) return res.status(503).json({ error: 'Stripe non configurato' });
+    const { amount, description, patient_name, staff_id } = req.body;
+    if (!amount || amount < 100) return res.status(400).json({ error: 'Importo minimo €1.00' });
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(amount * 100), // centesimi
+      currency: 'eur',
+      metadata: {
+        clinic_id: req.clinic_id,
+        staff_id: req.staff_id,
+        patient_name: patient_name || 'Paziente',
+        description: description || 'Trattamento estetico'
+      },
+      description: `${description || 'Trattamento'} — ${patient_name || 'Paziente'}`,
+    });
+
+    // Calcola fee BUR Society (0.8%)
+    const bur_fee = Math.round(amount * 0.008 * 100) / 100;
+
+    res.json({
+      success: true,
+      client_secret: paymentIntent.client_secret,
+      payment_intent_id: paymentIntent.id,
+      amount,
+      bur_fee,
+      amount_after_fee: Math.round((amount - bur_fee) * 100) / 100
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Payment link (per pagamento da casa)
+router.post('/payments/link', requireStaff, async (req, res) => {
+  try {
+    if (!stripe) return res.status(503).json({ error: 'Stripe non configurato' });
+    const { amount, description, patient_name, patient_email } = req.body;
+    if (!amount || amount < 1) return res.status(400).json({ error: 'Importo obbligatorio' });
+
+    // Crea prodotto e prezzo al volo
+    const price = await stripe.prices.create({
+      currency: 'eur',
+      unit_amount: Math.round(amount * 100),
+      product_data: {
+        name: description || 'Trattamento estetico',
+        metadata: { clinic_id: req.clinic_id }
+      }
+    });
+
+    const paymentLink = await stripe.paymentLinks.create({
+      line_items: [{ price: price.id, quantity: 1 }],
+      metadata: {
+        clinic_id: req.clinic_id,
+        patient_name: patient_name || '',
+        patient_email: patient_email || ''
+      },
+      after_completion: {
+        type: 'hosted_confirmation',
+        hosted_confirmation: { custom_message: 'Grazie! Il pagamento è confermato. I tuoi punti 🜁 verranno accreditati a breve.' }
+      }
+    });
+
+    const bur_fee = Math.round(amount * 0.008 * 100) / 100;
+
+    res.json({
+      success: true,
+      payment_link: paymentLink.url,
+      payment_link_id: paymentLink.id,
+      amount,
+      bur_fee
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Storico pagamenti clinica
+router.get('/payments/history', requireStaff, async (req, res) => {
+  try {
+    if (!stripe) return res.status(503).json({ payments: [], total: 0 });
+    const limit = parseInt(req.query.limit) || 20;
+
+    const paymentIntents = await stripe.paymentIntents.list({
+      limit,
+    });
+
+    const payments = paymentIntents.data
+      .filter(p => p.metadata.clinic_id === req.clinic_id)
+      .map(p => ({
+        id: p.id,
+        amount: p.amount / 100,
+        status: p.status,
+        description: p.description,
+        patient: p.metadata.patient_name,
+        created: new Date(p.created * 1000).toISOString(),
+        bur_fee: Math.round(p.amount * 0.008) / 100
+      }));
+
+    const total = payments
+      .filter(p => p.status === 'succeeded')
+      .reduce((sum, p) => sum + p.amount, 0);
+
+    res.json({ payments, total, count: payments.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Webhook Stripe (pagamento completato)
+router.post('/payments/webhook', async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  try {
+    let event;
+    if (webhookSecret && stripe) {
+      event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+    } else {
+      event = req.body;
+    }
+
+    if (event.type === 'payment_intent.succeeded') {
+      const pi = event.data.object;
+      console.log(`[BUR OS] Pagamento completato: €${pi.amount/100} — ${pi.metadata.patient_name}`);
+      // TODO: accredita punti 🜁 al paziente
+    }
+
+    res.json({ received: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 module.exports = router;
