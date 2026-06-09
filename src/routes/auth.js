@@ -612,4 +612,175 @@ router.get('/paziente/notifiche/:paziente_id', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+// ── NOVA ENDPOINTS ────────────────────────────────────────────
+// Aggiungi in fondo a src/routes/auth.js prima di module.exports
+
+const { buildNovaContext, buildNovaPrompt, saveNovaFeedback } = require('../modules/novaContext');
+const { lazarusCall } = require('../modules/lazarus');
+
+// Chat NOVA con context dinamico reale
+router.post('/nova/chat', requireStaff, async (req, res) => {
+  try {
+    const { message, role_id, conversation_history } = req.body;
+    if (!message) return res.status(400).json({ error: 'message obbligatorio' });
+
+    // 1. Costruisci context dinamico dalla clinica
+    const context = await buildNovaContext(role_id || req.staff_role.toLowerCase(), req.clinic_id);
+
+    let systemPrompt;
+    if (context) {
+      systemPrompt = buildNovaPrompt(
+        role_id || req.staff_role.toLowerCase(),
+        context.clinicContext,
+        context.knowledgeBase
+      );
+    } else {
+      // Fallback se DB non risponde
+      systemPrompt = `Sei NOVA, supervisore AI per cliniche estetiche italiane powered by BUR OS. 
+Sei un esperto di medicina estetica, anatomia, prodotti (filler, botox, laser), normativa italiana e gestione clinica.
+Rispondi sempre in italiano, in modo conciso e professionale.`;
+    }
+
+    // 2. Costruisci history conversazione per continuità
+    const history = (conversation_history || [])
+      .slice(-8) // Ultimi 8 scambi per non sforare context
+      .map(m => `${m.role === 'user' ? 'Utente' : 'NOVA'}: ${m.text}`)
+      .join('\n');
+
+    const fullMessage = history
+      ? `Conversazione precedente:\n${history}\n\nNuova domanda: ${message}`
+      : message;
+
+    // 3. Chiama BUR OS (LAZARUS-9)
+    const result = await lazarusCall(systemPrompt, fullMessage, {
+      maxTokens: 600,
+      tier: 'POWER',
+      skipCache: true // Chat sempre fresh
+    });
+
+    res.json({
+      success: true,
+      response: result.text,
+      provider: result.provider,
+      tokens: result.tokens,
+      has_context: !!context
+    });
+
+  } catch (err) {
+    console.error('[BUR OS] NOVA chat error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Proactive briefing mattutino per ruolo
+router.get('/nova/briefing', requireStaff, async (req, res) => {
+  try {
+    const roleId = req.query.role || req.staff_role.toLowerCase();
+    const context = await buildNovaContext(roleId, req.clinic_id);
+
+    if (!context) {
+      return res.json({ briefing: null, message: 'Contesto non disponibile' });
+    }
+
+    const systemPrompt = buildNovaPrompt(roleId, context.clinicContext, context.knowledgeBase);
+
+    const briefingRequest = {
+      doctor:       'Genera il briefing clinico per oggi. Elenca i pazienti con eventuali alert, procedure da eseguire e qualsiasi cosa devo sapere prima di iniziare. Sii diretto e pratico.',
+      assistant:    'Genera la checklist operativa per oggi. Cosa devo preparare, in quale ordine, e cosa non devo dimenticare.',
+      nurse:        'Genera il briefing sicurezza per oggi. Scadenze farmaci, cicli sterilizzazione da fare, e alert di sicurezza.',
+      ceo:          'Genera il briefing executive per oggi. KPI, agenda, staff, opportunità e rischi da monitorare.',
+      receptionist: 'Genera il briefing reception per oggi. Appuntamenti, conferme mancanti, follow-up da fare e messaggi da inviare.',
+      legal:        'Genera il briefing compliance per oggi. Documenti in scadenza, consensi mancanti e adempimenti urgenti.',
+      marketing:    'Genera il briefing marketing per oggi. Performance, contenuti da pubblicare e azioni prioritarie.',
+    };
+
+    const request = briefingRequest[roleId] || briefingRequest.ceo;
+
+    const result = await lazarusCall(systemPrompt, request, {
+      maxTokens: 800,
+      tier: 'POWER',
+      skipCache: true
+    });
+
+    res.json({
+      success: true,
+      briefing: result.text,
+      role: roleId,
+      generated_at: new Date().toISOString(),
+      tokens: result.tokens
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Feedback learning — il medico corregge NOVA
+router.post('/nova/feedback', requireStaff, async (req, res) => {
+  try {
+    const { question, nova_answer, feedback, correction } = req.body;
+    // feedback: 'positive' | 'negative'
+    if (!question || !feedback) return res.status(400).json({ error: 'question e feedback obbligatori' });
+
+    await saveNovaFeedback(
+      req.clinic_id,
+      req.staff_role,
+      question,
+      nova_answer || '',
+      feedback,
+      correction || null
+    );
+
+    // Se feedback negativo con correzione, logga per revisione
+    if (feedback === 'negative' && correction) {
+      console.log(`[BUR OS] 📚 Learning feedback — Clinica ${req.clinic_id} | Ruolo ${req.staff_role}`);
+      console.log(`  Domanda: ${question.slice(0, 100)}`);
+      console.log(`  Correzione: ${correction.slice(0, 200)}`);
+    }
+
+    res.json({ success: true, message: feedback === 'positive' ? 'Grazie! NOVA impara dalle tue conferme.' : 'Grazie! La correzione migliorerà NOVA per tutti.' });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Insight paziente potenziato con knowledge base
+router.post('/nova/insight-paziente', requireStaff, async (req, res) => {
+  try {
+    const { paziente } = req.body;
+    if (!paziente) return res.status(400).json({ error: 'paziente obbligatorio' });
+
+    const context = await buildNovaContext('doctor', req.clinic_id);
+    const systemPrompt = context
+      ? buildNovaPrompt('doctor', context.clinicContext, context.knowledgeBase)
+      : `Sei NOVA, supervisore AI clinico. Analizza il paziente e rispondi SOLO con JSON valido.`;
+
+    const userMsg = `Analizza questo paziente e restituisci SOLO un oggetto JSON (no markdown, no testo):
+{"azione_principale":"max 12 parole","alert":"stringa o null","opportunita":"stringa o null","score_paziente":numero 1-10,"mood":"POSITIVO|NEUTRO|ATTENZIONE|CRITICO","controindicazioni":"stringa o null","protocollo_consigliato":"stringa o null"}
+
+Paziente: ${JSON.stringify(paziente)}`;
+
+    const result = await lazarusCall(systemPrompt, userMsg, { maxTokens: 500, tier: 'POWER', skipCache: true });
+
+    // Parse JSON
+    let insight = null;
+    try {
+      const start = result.text.indexOf('{');
+      const end = result.text.lastIndexOf('}');
+      if (start !== -1 && end !== -1) insight = JSON.parse(result.text.slice(start, end + 1));
+    } catch {}
+
+    if (!insight) insight = { azione_principale: 'Procedere con anamnesi completa', alert: null, opportunita: null, score_paziente: 7, mood: 'NEUTRO', controindicazioni: null, protocollo_consigliato: null };
+
+    insight.generated_at = new Date().toISOString();
+    insight.tokens = result.tokens;
+    insight.provider = result.provider;
+
+    res.json({ success: true, insight });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 module.exports = router;
